@@ -1,8 +1,8 @@
 makeFormula<-function(x.var, y.var){
-    formula<-paste(y.var, paste(x.var, collapse="+"), sep="~")
+    formula<-as.formula(paste(y.var, paste(x.var, collapse="+"), sep="~"))
     return(formula)
 }
-mdl.cv<-function(dataSet, x.var, y.var, step=FALSE, criteria=NULL, split=12){
+mdl.cv<-function(dataSet, x.var, y.var, model="lm", step=FALSE, criteria=NULL, split=12, ncomp=NULL){
     segment<-split(1:nrow(dataSet), ceiling(1:nrow(dataSet)/split))
     formula=makeFormula(x.var, y.var)
     mdl<-list()
@@ -11,10 +11,12 @@ mdl.cv<-function(dataSet, x.var, y.var, step=FALSE, criteria=NULL, split=12){
     
     for(i in seq_along(segment)){
         dataset<-dataSet[-segment[[i]],]
-        if(step){
+        testset<-dataSet[segment[[i]],]
+        if(step & model=="lm"){
             if(!criteria %in% c("AIC", "BIC", "Cp", "R2adj", "forward", "backward")){
                 stop("Please! enter the correct criteria")
             }else{
+                require(leaps)
                 if(criteria=="Cp"){
                     ## Model selected by Mallows Cp Criteria
                     cp.leaps<-leaps(x=dataset[,x.var],
@@ -52,21 +54,46 @@ mdl.cv<-function(dataSet, x.var, y.var, step=FALSE, criteria=NULL, split=12){
                         mdl[[i]]<-lm(formula, data=dataset)
                     }
                 }else if(criteria=="forward"){
+                    require(mixlm)
                     fm.log<-capture.output({
-                        mdl[[i]]<- forward(lm(formula, data=dataset), alpha = 0.05, full = FALSE)
+                        mdl[[i]]<- forward(do.call(lm, list(formula, dataset)), alpha = 0.05, full = FALSE)
                     })
                 }else if(criteria=="backward"){
+                    require(mixlm)
                     fm.log<-capture.output({
-                        mdl[[i]]<- backward(lm(formula, data=dataset), alpha = 0.05, full = FALSE)
+                        mdl[[i]]<- backward(do.call(lm, list(formula, dataset)), alpha = 0.05, full = FALSE)
                     })
                 }
             }
+        }else if(step & model!='lm'){
+            stop("Stepwise can only be performed using Linear Model, Please input 'lm' in the model.")
+        }else if(model=='lm'){
+            mdl[[i]]<-lm(formula, dataset)
+        }else if(model=='ridge'){
+            require(ridge)
+            mdl[[i]]<- linearRidge(formula, dataset)
+        }else if(model=="pls" | model=="pcr"){
+            require(pls)
+            if(model=="pls"){
+                mdl[[i]]<-plsr(formula, data=dataset, scale=TRUE)
+            }else{
+                mdl[[i]]<-pcr(formula, data=dataset, scale=TRUE)
+            }
+            if(!is.null(ncomp) & is.numeric(ncomp)){
+                predVec[segment[[i]]]<-predict(mdl[[i]], newdata=testset[,x.var], ncomp=ncomp)[,,]
+                errVec[segment[[i]]]<-testset[,y.var]-predVec[segment[[i]]]
+                next
+            }
+            else{
+                stop("`ncomp' is needed for PLS and PCR prediction and it should be numeric.")
+            }
         }else{
-            mdl[i]<-lm(formula, dataset)
+            stop("Model can take 'lm' or 'ridge' value.")
         }
-        predVec[segment[[i]]]<-predict(mdl[[i]], newdata=dataSet[segment[[i]], x.var])
-        errVec[segment[[i]]]<-dataSet[segment[[i]],y.var]-predict(mdl[[i]], newdata=dataSet[segment[[i]], x.var])
+        predVec[segment[[i]]]<-predict(mdl[[i]], newdata=testset[,x.var])
+        errVec[segment[[i]]]<-testset[,y.var]-predVec[segment[[i]]]
     }
-    rmse.cv<-sqrt(1/nrow(dataset)*sum(errVec^2))
-    invisible(list(Model=mdl, Predicted=predVec, Error=errVec, rmsep=rmse.cv))
+    rmse.cv<-sqrt(1/nrow(dataSet)*sum(errVec^2))
+    r2pred<-1-sum(errVec^2)/sum((predVec-mean(dataSet[,y.var]))^2)
+    invisible(list(Model=mdl, Predicted=predVec, Error=errVec, rmsep=rmse.cv, r2pred=r2pred))
 }
