@@ -1,6 +1,11 @@
-# Cross Validation
-Raju Rimal  
-6 Mar 2015  
+---
+title: "Cross Validation"
+author: "Raju Rimal"
+date: "6 Mar 2015"
+output:
+  html_document:
+    keep_md: yes
+---
 
 # cv.lm
 Cross Validation in Linear Model, and the subset models with various criteria along with ridge regression, PLS and PCR
